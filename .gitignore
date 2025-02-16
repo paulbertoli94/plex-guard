@@ -1,0 +1,31 @@
+# 🐍 Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# 🔥 Virtual environments
+venv/
+.env
+.envrc
+*.env
+
+# 🚀 Docker files
+docker-compose.override.yml
+*.tar
+
+# 🏗️ Build artifacts
+dist/
+build/
+*.egg-info/
+
+# ⚙️ IDE & System Files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# 📦 Package manager files
+pip-log.txt
+pip-delete-this-directory.txt
