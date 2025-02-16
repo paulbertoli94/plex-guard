@@ -7,7 +7,7 @@ import os
 QBITTORRENT_URL = os.getenv("QBITTORRENT_URL")
 USERNAME = os.getenv("QBITTORRENT_USER")
 PASSWORD = os.getenv("QBITTORRENT_PASS")
-DAYS_OLD = os.getenv("DAYS_OLD")
+DAYS_OLD = int(os.getenv("DAYS_OLD"))
 
 # Flask App
 app = Flask(__name__)
