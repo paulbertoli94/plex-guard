@@ -6,10 +6,7 @@ __pycache__/
 *.log
 
 # 🔥 Virtual environments
-venv/
-.env
-.envrc
-*.env
+.venv/
 
 # 🚀 Docker files
 docker-compose.override.yml
