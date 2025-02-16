@@ -50,8 +50,13 @@ def clean_torrents():
         days_old = (now - added_on).days
         comment = torrent.get("comment", "").strip()
 
-        if not comment:
-            print(f"🚮 Eliminando torrent senza commento: {torrent['name']}")
+        # Controlla se il torrent è completo
+        if torrent["progress"] < 1.0:
+            print(f"⏳ Torrent '{torrent['name']}' ancora in download ({torrent['progress'] * 100:.2f}%), skip.")
+            continue  # ⬅️ Salta direttamente al prossimo torrent
+
+        if not comment or comment == "dynamic metainfo from client":
+            print(f"🚮 Eliminando torrent senza commento: valido{torrent['name']}")
             if delete_torrent(session, torrent_hash):
                 deleted_count += 1
         elif days_old > DAYS_OLD:
