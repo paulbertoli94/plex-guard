@@ -1,91 +1,124 @@
-# qBittorrent Torrent Cleaner
+# 🎬 PlexGuard
 
-qBittorrent Torrent Cleaner è un'app Flask che elimina automaticamente i torrent in base a determinate condizioni, utilizzando un webhook da Sonarr.
+**PlexGuard** è un'app Flask che:
+- elimina automaticamente torrent completati da qBittorrent in base a regole personalizzabili,
+- si integra con **Plex** per monitorare le lingue disponibili dei contenuti,
+- invia notifiche via **Telegram** quando viene rilevata l'aggiunta della lingua italiana.
 
-## 🛠️ Funzionalità
-- ✅ Elimina i torrent **senza commento** immediatamente.
-- ⏳ Elimina i torrent **con commento solo se più vecchi di 60 giorni**.
-- 🚀 Si integra con **Sonarr** tramite webhook.
-- 🛠️ Funziona in **Docker** per una facile gestione.
-- 🛡️ Usa **variabili d'ambiente** per la configurazione.
+Pensato per chi usa **Sonarr/Radarr** con Plex e vuole mantenere una libreria pulita e aggiornata.
 
 ---
 
-## ✅ Requisiti
-- **Docker** (se vuoi eseguire l'app in container)
-- **Python 3.12** (se vuoi eseguire lo script manualmente)
-- **qBittorrent** con API attive
-- **Sonarr** per inviare il webhook
+## 🚀 Funzionalità
+
+- ✅ Elimina automaticamente i torrent:
+  - senza commento ✅ subito
+  - con commento ✅ solo se più vecchi di `N` giorni
+- 🔁 Riceve webhook da **Sonarr/Radarr**
+- 🧠 Controlla da **Plex** le lingue disponibili di un film/serie
+- 🇮🇹 Invia una notifica **Telegram** se viene aggiunta la lingua italiana
+- 📦 Completamente **containerizzato con Docker**
+- ⚙️ Configurabile via **variabili d'ambiente** o `.env`
+
+---
+
+## 📦 Requisiti
+
+- Python 3.12 **(se usato localmente)**  
+- Docker **(raccomandato)**
+- qBittorrent con API attive
+- Sonarr o Radarr configurato con webhook
+- Plex Media Server
+- Bot Telegram
 
 ---
 
 ## 🛠️ Installazione
 
-### **1. Clonare il repository**
+### 1. Clona il repository
+
 ```bash
-git clone https://github.com/tuo-username/torrent-cleaner.git
-cd torrent-cleaner
+git clone https://github.com/tuo-username/plexguard.git
+cd plexguard
 ```
 
-### **2. Creare il file `.env` per la configurazione**
-Crea un file `.env` nella cartella principale e inserisci le credenziali per qBittorrent:
+### 2. Crea il file `.env`
 
-```
-QBITTORRENT_URL=http://192.168.1.1:8080
+```env
+QBITTORRENT_URL=http://192.168.1.10:8080
 QBITTORRENT_USER=admin
-QBITTORRENT_PASS=mypassword
+QBITTORRENT_PASS=password
+DAYS_OLD=60
+
+PLEX_URL=http://192.168.1.13:32400
+PLEX_TOKEN=PLEX-TOKEN
+
+TELEGRAM_BOT_TOKEN=123456789:ABCDefghIjkLmNopQRstuVwxyZ
+TELEGRAM_CHAT_ID=123456789
 ```
 
-### **3. Build ed Esecuzione con Docker**
-```bash
-docker build -t torrent-cleaner .
-docker run -d -p 5001:5001 --env-file .env --name torrent-cleaner torrent-cleaner
-```
+### 3. Build & Run con Docker
 
-Oppure, se usi `docker-compose.yml`, avvia con:
 ```bash
-docker-compose up -d
+docker build -t plexguard .
+docker run -d -p 5001:5001 --env-file .env --name plexguard -v ${PWD}/audio_tracks.json:/app/audio_tracks.json plexguard
 ```
 
 ---
 
-## 💾 Configurazione di Sonarr
+## 🧩 Integrazione con Sonarr/Radarr
 
-1. **Vai su Sonarr** → **Settings** → **Connect**.
-2. **Aggiungi un Webhook**.
-3. **URL:** `http://IP_DEL_SERVER:5000/webhook`
-4. **Attiva solo "On Import"**.
-5. **Salva** e prova un episodio per verificare che funzioni.
+1. Vai su **Settings > Connect > Add > Webhook**
+2. Inserisci:
+   - **URL:** `http://<IP_DEL_SERVER>:5001/downloading`
+   - **Eventi:** `On File Import`, `On File Upgrade`, `On Import Complete`
+3. Crea un secondo webhook (per l’import finale):
+   - **URL:** `http://<IP_DEL_SERVER>:5001/imported`
+   - **Eventi:** `On Import Complete` **(solo)**
 
 ---
 
-## ✅ Test e Debug
+## 🔍 Test locali
 
-Per verificare che il server sia attivo, esegui:
+Verifica se l'app è attiva:
+
 ```bash
-curl -X POST http://127.0.0.1:5000/webhook
-```
-Se tutto funziona, otterrai:
-```json
-{"status": "success", "message": "Webhook ricevuto!"}
+curl -X POST http://localhost:5001/downloading -H "Content-Type: application/json" -d '{}'
 ```
 
-Per vedere i log del container:
+Vedi i log del container:
+
 ```bash
-docker logs torrent-cleaner
+docker logs -f plexguard
 ```
 
 ---
 
-## ⚙ Personalizzazioni
-- Modifica il numero di giorni prima dell'eliminazione (attualmente **60 giorni**).
-- Aggiungi notifiche Telegram o log su file.
-- Integra altri client come Radarr o Lidarr.
+## ⚙ Personalizzazione
+
+- Puoi cambiare la logica di eliminazione modificando `TorrentCleanerService.py`
+- Puoi modificare le notifiche Telegram da `TelegramNotificationService.py`
+- Supporto a `Radarr`, `Lidarr`, `Readarr` facilmente integrabile.
 
 ---
 
-## 🌟 Autore
-**Tuo Nome** - [GitHub](https://github.com/tuo-username)
+## 📁 Struttura progetto
 
-Se trovi utile questo progetto, lascia una ⭐ su GitHub!
+```
+plexguard/
+├── Controller.py               # Webhook Flask
+├── TorrentCleanerService.py   # Pulizia torrent da qBittorrent
+├── TelegramNotificationService.py  # Integrazione Plex + Telegram
+├── __init__.py
+requirements.txt
+Dockerfile
+.env.example
+```
 
+---
+
+## ✨ Autore
+
+**Tuo Nome** – [GitHub](https://github.com/tuo-username)
+
+Se ti piace il progetto, lascia una ⭐ su GitHub!

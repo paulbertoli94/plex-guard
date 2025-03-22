@@ -26,3 +26,6 @@ build/
 # 📦 Package manager files
 pip-log.txt
 pip-delete-this-directory.txt
+
+#env file
+.env

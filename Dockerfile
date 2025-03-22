@@ -1,21 +1,30 @@
-# Usa Python 3.12
+# Usa un'immagine Python leggera
 FROM python:3.12-alpine
 
-# Imposta la directory di lavoro
+# Imposta la working directory all'interno del container
 WORKDIR /app
 
-# Copia i file necessari
-COPY requirements.txt requirements.txt
-COPY sonarr_webhook.py sonarr_webhook.py
+# Copia i file nel container
+COPY requirements.txt .
+COPY plexguard/ ./plexguard/
+COPY plexguard/Controller.py ./plexguard.py
 
 # Installa le dipendenze
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Dichiarare variabili d'ambiente (opzionale, utile per documentazione)
-#ENV QBITTORRENT_URL="http://127.0.0.1:8080"
-#ENV QBITTORRENT_USER="admin"
-#ENV QBITTORRENT_PASS="password"
-#ENV DAYS_OLD = os.getenv("DAYS_OLD", 90)
+# (Opzionale) Definisci variabili d’ambiente documentative
+# Puoi sovrascriverle con -e in docker run o nel docker-compose.yml
+#ENV QBITTORRENT_URL=""
+#ENV QBITTORRENT_USER=""
+#ENV QBITTORRENT_PASS=""
+#ENV DAYS_OLD=90
+#ENV PLEX_URL=""
+#ENV PLEX_TOKEN=""
+#ENV TELEGRAM_BOT_TOKEN=""
+#ENV TELEGRAM_CHAT_ID=""
+
+# Espone la porta (opzionale, utile se usi Docker con docker-compose o host binding)
+EXPOSE 5001
 
 # Comando di avvio
-CMD ["python", "sonarr_webhook.py"]
+CMD ["python", "plexguard.py"]
