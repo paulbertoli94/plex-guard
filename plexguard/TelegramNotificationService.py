@@ -208,8 +208,6 @@ class TelegramNotificationService:
         if not media:
             return f"Media non trovato su Plex per imdbId {imdb_id}"
 
-        logger.info("Streams trovati: %s", media.media[0].parts[0].streams)
-
         media_info = {
             "title": media.title,
             "languages": [track.language for track in media.media[0].parts[0].streams if track.streamType == 2],
