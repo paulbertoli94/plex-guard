@@ -17,7 +17,7 @@ async def downloading(request: Request):
     torrent_cleaner.clean_torrents()
     # Supponendo che process_webhook_data sia sincrono:
     result = telegram_notifier.process_webhook_data(data)
-    return JSONResponse({"status": "processed", "result": result})
+    return JSONResponse({"status": "OK", "result": result})
 
 async def upgraded(request: Request):
     """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua."""
@@ -25,7 +25,7 @@ async def upgraded(request: Request):
     torrent_cleaner.clean_torrents()
     # Supponendo che check_language_update sia sincrono o una coroutine non da awaitare qui:
     result = telegram_notifier.check_language_update(data)
-    return JSONResponse({"status": "checked", "result": result})
+    return JSONResponse({"status": "OK", "result": result})
 
 async def added(request: Request):
     """Webhook di Sonarr: Evento 'added' per segnalare nuovi media."""
@@ -33,7 +33,7 @@ async def added(request: Request):
     torrent_cleaner.clean_torrents()
     # Se check_language_update è una coroutine, la aspettiamo
     result = await telegram_notifier.check_language_update(data, True)
-    return JSONResponse({"status": "checked", "result": result})
+    return JSONResponse({"status": "OK", "result": result})
 
 routes = [
     Route("/downloading", endpoint=downloading, methods=["POST"]),

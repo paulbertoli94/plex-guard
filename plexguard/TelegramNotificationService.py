@@ -176,29 +176,7 @@ class TelegramNotificationService:
             logger.error("❌ Errore nell'invio della notifica Telegram: %s", e)
             return False
 
-    def get_media_info(self, media_id):
-        """ Recupera informazioni su un film/serie da Plex """
-        if not self.plex:
-            logger.warning("⚠️ Nessuna connessione a Plex disponibile.")
-            return None
-
-        try:
-            for media in self.plex.library.all():
-                if str(media.ratingKey) == str(media_id):
-                    return {
-                        "title": media.title,
-                        "languages": [track.language for track in media.media[0].parts[0].streams if
-                                      track.streamType == 2],
-                        "cover": media.thumbUrl
-                    }
-            logger.warning("⚠️ Media con ID %s non trovato in Plex.", media_id)
-            return None
-        except Exception as e:
-            logger.error("❌ Errore nel recupero dei dati da Plex: %s", e)
-            return None
-
-    def process_webhook_data(self, data):
-        """Riceve i dati da Sonarr/Radarr al momento del download"""
+    def get_languages(self, data):
         imdb_id = data.get('remoteMovie', {}).get('imdbId')
         if not imdb_id:
             logger.warning("⚠️ imdbId mancante nel payload.")
@@ -208,9 +186,16 @@ class TelegramNotificationService:
         if not media:
             return f"Media non trovato su Plex per imdbId {imdb_id}"
 
+        languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
+        return media, list(dict.fromkeys(languages)), imdb_id
+
+    def process_webhook_data(self, data):
+        """Riceve i dati da Sonarr/Radarr al momento del download"""
+        media, languages, imdb_id = self.get_languages(data)
+
         media_info = {
             "title": media.title,
-            "languages": [track.language for track in media.media[0].parts[0].streams if track.streamType == 2],
+            "languages": languages,
             "cover": media.thumbUrl
         }
 
@@ -223,16 +208,7 @@ class TelegramNotificationService:
 
     async def check_language_update(self, data, added=False):
         """Controlla se è stata aggiunta la lingua italiana"""
-        imdb_id = data.get('remoteMovie', {}).get('imdbId')
-        if not imdb_id:
-            logger.warning("⚠️ imdbId mancante nel payload.")
-            return "Nessun imdbId"
-
-        media = self._find_media_by_imdb_id(imdb_id)
-        if not media:
-            return f"Media non trovato su Plex per imdbId {imdb_id}"
-
-        current_languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
+        media, current_languages, imdb_id = self.get_languages(data)
 
         audio_db = self._load_audio_db()
         previous_languages = audio_db.get(imdb_id, [])
