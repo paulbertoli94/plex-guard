@@ -1,4 +1,3 @@
-import asyncio
 import io
 import json
 import logging
@@ -14,6 +13,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 AUDIO_TRACKS_DB = Path("audio_tracks.json")
+
+# Mappatura delle lingue alle emoji delle bandiere
+flag_mapping = {
+    "Italian": "🇮🇹",
+    "English": "🇺🇸",  # per l'inglese, usa la bandiera degli USA
+    "Giapponese": "🇯🇵",
+    "Japanese": "🇯🇵",
+    "French": "🇫🇷",
+    "Spanish": "🇪🇸",
+    "German": "🇩🇪",
+    "Russian": "🇷🇺",
+    "Korean": "🇰🇷",
+    "Chinese": "🇨🇳",
+    "Hindi": "🇮🇳",
+    "Portuguese": "🇵🇹",
+    "Arabic": "🇸🇦",
+    "Turkish": "🇹🇷",
+    "Vietnamese": "🇻🇳",
+    "Polish": "🇵🇱",
+    "Dutch": "🇳🇱",
+    "Swedish": "🇸🇪",
+    "Norwegian": "🇳🇴",
+    "Finnish": "🇫🇮",
+    "Greek": "🇬🇷",
+    "Hebrew": "🇮🇱",
+    "Thai": "🇹🇭",
+    "Indonesian": "🇮🇩",
+    "Malay": "🇲🇾",
+    "Czech": "🇨🇿",
+    "Romanian": "🇷🇴",
+    "Hungarian": "🇭🇺"
+}
 
 
 class TelegramNotificationService:
@@ -122,10 +153,12 @@ class TelegramNotificationService:
             image_bytes = io.BytesIO(response.content)
             image_bytes.name = "image.jpg"  # Nome del file (opzionale)
 
-            # Costruisci il messaggio in HTML
+            # Sostituisci ogni lingua con la sua emoji (se disponibile)
+            flags = [flag_mapping.get(lang, lang) for lang in current_languages]
+
             message = (
                 f"<b>{title}</b>\n"
-                f"<b>Tracce audio: {', '.join(current_languages)}</b>\n"
+                f"<b>Tracce audio: {', '.join(flags)}</b>\n"
                 f"{summary}\n\n"
                 f'<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
             )
