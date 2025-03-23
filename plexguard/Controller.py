@@ -1,47 +1,32 @@
-import os
+from fastapi import FastAPI, Request
+import uvicorn
 
-from flask import Flask, jsonify, request
-
-from plexguard.TorrentCleanerService import TorrentCleanerService
 from plexguard.TelegramNotificationService import TelegramNotificationService
+from plexguard.TorrentCleanerService import TorrentCleanerService
 
-# Flask App
-app = Flask(__name__)
+app = FastAPI()
 
 # Inizializza i servizi
 torrent_cleaner = TorrentCleanerService()
 telegram_notifier = TelegramNotificationService()
 
+@app.post("/downloading")
+async def downloading(request: Request):
+    data = await request.json()
+    torrent_cleaner.clean_torrents()
+    return telegram_notifier.process_webhook_data(data)
 
-@app.route("/clean", methods=["POST"])
-def clean_torrents():
-    """Webhook di Sonarr: Attiva la pulizia dei torrent"""
-    result = torrent_cleaner.clean_torrents()
-    return jsonify(result)
+@app.post("/upgraded")
+async def upgraded(request: Request):
+    data = await request.json()
+    torrent_cleaner.clean_torrents()
+    return telegram_notifier.check_language_update(data)
 
-
-@app.route("/downloading", methods=["POST"])
-def downloading():
-    """Webhook di Sonarr: Notifica il download in corso"""
-    data = request.json  # Riceve il JSON dal webhook di Sonarr/Radarr
-    result = telegram_notifier.process_webhook_data(data)
-    return jsonify({"status": "processed", "result": result})
-
-
-@app.route("/upgraded", methods=["POST"])
-def upgraded():
-    """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua"""
-    data = request.json
-    result = telegram_notifier.check_language_update(data)
-    return jsonify({"status": "checked", "result": result})
-
-@app.route("/added", methods=["POST"])
-def added():
-    """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua"""
-    data = request.json
-    result = telegram_notifier.check_language_update(data, True)
-    return jsonify({"status": "checked", "result": result})
-
+@app.post("/added")
+async def added(request: Request):
+    data = await request.json()
+    torrent_cleaner.clean_torrents()
+    return await telegram_notifier.check_language_update(data, True)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    uvicorn.run("plexguard.Controller:app", host="0.0.0.0", port=5001, reload=False)

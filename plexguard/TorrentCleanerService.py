@@ -65,12 +65,14 @@ class TorrentCleanerService:
     def clean_torrents(self):
         """ Controlla i torrent e applica le regole di eliminazione """
         if not self.session:
-            return {"status": "error", "message": "Impossibile connettersi a qBittorrent"}
+            logger.error("Impossibile connettersi a qBittorrent")
+            return
 
         try:
             response = self.session.get(f"{self.qbittorrent_url}/api/v2/torrents/info")
             if response.status_code != 200:
-                return {"status": "error", "message": "Errore nel recupero dei torrent"}
+                logger.error("Errore nel recupero dei torrent")
+                return
 
             torrents = response.json()
             deleted_count = 0
@@ -84,8 +86,6 @@ class TorrentCleanerService:
 
                 # Controlla se il torrent è completo
                 if torrent["progress"] < 1.0:
-                    logger.info(
-                        f"⏳ Torrent '{torrent['name']}' ancora in download ({torrent['progress'] * 100:.2f}%), skip.")
                     continue
 
                 # Criterio di eliminazione: Senza commento o troppo vecchio
@@ -99,8 +99,5 @@ class TorrentCleanerService:
                     if self.delete_torrent(torrent_hash):
                         deleted_count += 1
 
-            return {"status": "success", "deleted": deleted_count}
-
         except requests.RequestException as e:
             logger.error("❌ Errore nel recupero dei torrent: %s", e)
-            return {"status": "error", "message": "Errore nella connessione a qBittorrent"}

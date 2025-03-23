@@ -100,49 +100,48 @@ class TelegramNotificationService:
         with open(AUDIO_TRACKS_DB, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    def send_telegram_notification(self, title, current_languages, summary, image_url):
+    async def send_telegram_notification(self, title, current_languages, summary, image_url):
         """Invia una notifica su Telegram con messaggio e immagine.
 
-        L'URL dell'immagine viene scaricato e il contenuto viene inviato come file.
-        Assicurati che l'URL sia raggiungibile dal server che esegue l'app.
+        L'URL dell'immagine viene scaricato e inviato come file.
+        Questa funzione è interamente asincrona e deve essere chiamata con `await`.
         """
         if not self.bot:
             logger.warning("⚠️ Nessuna connessione Telegram disponibile. Notifica non inviata.")
             return False
 
-        async def _send():
-            try:
-                # Scarica l'immagine dall'URL
-                response = requests.get(image_url)
-                if response.status_code != 200:
-                    logger.error("❌ Errore nel download dell'immagine: %s", response.status_code)
-                    return False
-
-                # Converte il contenuto in un file-like object
-                image_bytes = io.BytesIO(response.content)
-                image_bytes.name = "image.jpg"  # Imposta un nome per il file (opzionale)
-
-                # Costruisci il messaggio in HTML
-                message = f"""<b>{title}</b>
-<b>{f"Tracce audio: {', '.join(current_languages)}"}</b>
-{summary}
-
-<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>"""
-
-                # Invia la foto con la didascalia
-                await self.bot.send_photo(
-                    chat_id=self.telegram_chat_id,
-                    photo=image_bytes,
-                    caption=message,
-                    parse_mode="HTML"
-                )
-                logger.info("📨 Notifica inviata su Telegram con successo!")
-                return True
-            except Exception as e:
-                logger.error("❌ Errore nell'invio della notifica Telegram: %s", e)
+        try:
+            # Scarica l'immagine dall'URL in modo sincrono
+            # (Se vuoi farlo asincrono puoi usare aiohttp, ma qui restiamo semplici)
+            response = requests.get(image_url)
+            if response.status_code != 200:
+                logger.error("❌ Errore nel download dell'immagine: %s", response.status_code)
                 return False
 
-        return asyncio.run(_send())
+            # Converte il contenuto in un file-like object
+            image_bytes = io.BytesIO(response.content)
+            image_bytes.name = "image.jpg"  # Nome del file (opzionale)
+
+            # Costruisci il messaggio in HTML
+            message = (
+                f"<b>{title}</b>\n"
+                f"<b>Tracce audio: {', '.join(current_languages)}</b>\n"
+                f"{summary}\n\n"
+                f'<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
+            )
+
+            # Invia la foto con la didascalia
+            await self.bot.send_photo(
+                chat_id=self.telegram_chat_id,
+                photo=image_bytes,
+                caption=message,
+                parse_mode="HTML"
+            )
+            logger.info("📨 Notifica inviata su Telegram con successo!")
+            return True
+        except Exception as e:
+            logger.error("❌ Errore nell'invio della notifica Telegram: %s", e)
+            return False
 
     def get_media_info(self, media_id):
         """ Recupera informazioni su un film/serie da Plex """
@@ -178,7 +177,6 @@ class TelegramNotificationService:
 
         logger.info("Streams trovati: %s", media.media[0].parts[0].streams)
 
-        media_id = str(media.ratingKey)
         media_info = {
             "title": media.title,
             "languages": [track.language for track in media.media[0].parts[0].streams if track.streamType == 2],
@@ -186,13 +184,13 @@ class TelegramNotificationService:
         }
 
         audio_db = self._load_audio_db()
-        audio_db[media_id] = media_info["languages"]
+        audio_db[imdb_id] = media_info["languages"]
         self._save_audio_db(audio_db)
 
         logger.info("🎧 Tracce audio salvate per %s: %s", media_info["title"], media_info["languages"])
         return media_info["languages"]
 
-    def check_language_update(self, data, added=False):
+    async def check_language_update(self, data, added=False):
         """Controlla se è stata aggiunta la lingua italiana"""
         imdb_id = data.get('remoteMovie', {}).get('imdbId')
         if not imdb_id:
@@ -203,17 +201,16 @@ class TelegramNotificationService:
         if not media:
             return f"Media non trovato su Plex per imdbId {imdb_id}"
 
-        media_id = str(media.ratingKey)
         current_languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
 
         audio_db = self._load_audio_db()
-        previous_languages = audio_db.get(media_id, [])
+        previous_languages = audio_db.get(imdb_id, [])
 
         if added:
-            self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
+            await self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
-            self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
+            await self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
             return "Notifica italiano inviata"
         else:
             return "Nessun cambiamento rilevante"

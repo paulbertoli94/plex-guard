@@ -1,4 +1,5 @@
-Flask
+fastapi
+uvicorn
 requests
-plexapi
 python-telegram-bot
+plexapi
