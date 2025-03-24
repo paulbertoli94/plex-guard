@@ -24,7 +24,7 @@ async def upgraded(request: Request):
     data = await request.json()
     torrent_cleaner.clean_torrents()
     # Supponendo che check_language_update sia sincrono o una coroutine non da awaitare qui:
-    result = telegram_notifier.check_language_update(data)
+    result = await telegram_notifier.check_language_update(data)
     return JSONResponse({"status": "OK", "result": result})
 
 async def added(request: Request):
