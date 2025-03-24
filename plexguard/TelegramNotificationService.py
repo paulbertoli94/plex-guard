@@ -2,7 +2,6 @@ import io
 import json
 import logging
 import os
-import time
 from pathlib import Path
 
 import requests
@@ -245,7 +244,6 @@ class TelegramNotificationService:
 
     async def check_language_update(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
-        time.sleep(10)
         media, current_languages, id = self.get_languages(data)
         if not media:
             logger.warning("⚠️ Media non trovato dopo import")
