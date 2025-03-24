@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import requests
@@ -47,6 +48,38 @@ flag_mapping = {
 }
 
 
+def get_episode_unique_imdb_id(data):
+    """
+    Crea un identificatore univoco per un episodio combinando l'IMDb ID, il numero di stagione e di episodio.
+    Se uno di questi campi manca, restituisce solo l'IMDb ID come fallback.
+    """
+    imdb_id = data.get("series", {}).get("imdbId")
+    season_number = data.get("episode", {}).get("seasonNumber")
+    episode_number = data.get("episode", {}).get("episodeNumber")
+
+    if imdb_id and season_number is not None and episode_number is not None:
+        # Formatta la stagione e l'episodio con due cifre (es. S01E01)
+        return f"{imdb_id}-S{int(season_number):02d}E{int(episode_number):02d}"
+    return imdb_id  # fallback se non tutti i dati sono disponibili
+
+
+def _load_audio_db():
+    try:
+        with open(AUDIO_TRACKS_DB, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return {}  # Se il file è vuoto, ritorna un dizionario vuoto
+            return json.loads(content)
+    except Exception as e:
+        logger.error("❌ Errore nel caricamento del database audio: %s", e)
+        return {}
+
+
+def _save_audio_db(data):
+    with open(AUDIO_TRACKS_DB, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
 class TelegramNotificationService:
     def __init__(self):
         """ Inizializza il servizio di notifica con connessione a Plex e Telegram """
@@ -87,49 +120,39 @@ class TelegramNotificationService:
             logger.error("❌ Errore nell'inizializzazione del bot Telegram: %s", e)
             self.bot = None
 
-    def _find_media_by_imdb_id(self, imdb_id):
-        if not self.plex or not imdb_id:
+    def _find_media_by_id(self, data):
+        if not self.plex:
             return None
 
-        logger.info("🔍 Ricerca Plex per imdbId: %s", imdb_id)
-        try:
-            # Loop su tutte le librerie (es. film, serie, musica...)
+        if data.get('movie'):
+            imdb_id = data.get('movie').get('imdbId')
+            logger.info("🔍 Ricerca Plex per imdb_id: %s", imdb_id)
             for section in self.plex.library.sections():
-                # Considera solo librerie 'movie' o 'show'
-                if section.type in ('movie', 'show'):
-                    # Ricerca generica (puoi cambiare 'title=""' con year=2021 o altro per limitare i risultati)
+                if section.type == 'movie':
                     results = section.search(title="")
                     for item in results:
-                        # item.guids potrebbe contenere: ['imdb://tt14039582', 'tmdb://758866', 'tvdb://246288']
-                        # Verifichiamo se l'imdbId appare in uno dei GUID
                         if any(f"imdb://{imdb_id}" in g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con IMDb ID %s nella sezione '%s'",
+                            logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
                                         item.title, imdb_id, section.title)
-                            # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
                             item.refresh()
                             item.reload()
-                            return item
+                            return item, imdb_id
 
-            logger.warning("⚠️ Nessun risultato trovato per imdbId: %s", imdb_id)
-        except Exception as e:
-            logger.error("❌ Errore nella ricerca in Plex: %s", e)
+        if data.get('series'):
+            tvdb_id = data.get('series').get('tvdbId')
+            logger.info("🔍 Ricerca Plex per tvdbId: %s", tvdb_id)
+            for section in self.plex.library.sections():
+                if section.type == 'show':
+                    results = section.search(title="")
+                    for item in results:
+                        if any(f"tvdb://{tvdb_id}" in g.id for g in item.guids):
+                            logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
+                                        item.title, tvdb_id, section.title)
+                            item.refresh()
+                            item.reload()
+                            return item, tvdb_id
 
-        return None
-
-    def _load_audio_db(self):
-        try:
-            with open(AUDIO_TRACKS_DB, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    return {}  # Se il file è vuoto, ritorna un dizionario vuoto
-                return json.loads(content)
-        except Exception as e:
-            logger.error("❌ Errore nel caricamento del database audio: %s", e)
-            return {}
-
-    def _save_audio_db(self, data):
-        with open(AUDIO_TRACKS_DB, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        return None, None
 
     async def send_telegram_notification(self, title, current_languages, summary, image_url):
         """Invia una notifica su Telegram con messaggio e immagine.
@@ -177,43 +200,61 @@ class TelegramNotificationService:
             return False
 
     def get_languages(self, data):
-        imdb_id = data.get('remoteMovie', {}).get('imdbId')
-        if not imdb_id:
-            logger.warning("⚠️ imdbId mancante nel payload.")
-            return "Nessun imdbId"
-
-        media = self._find_media_by_imdb_id(imdb_id)
+        """
+        Restituisce una tupla (media, languages, id) dove:
+          - media: l'oggetto media (film o episodio)
+          - languages: lista deduplicata delle lingue audio
+          - id: identificatore univoco per l'elemento
+        """
+        logger.info("DATA: %s", data)
+        media, id = self._find_media_by_id(data)
         if not media:
-            return f"Media non trovato su Plex per imdbId {imdb_id}"
+            return None, None, None
 
-        languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
-        return media, list(dict.fromkeys(languages)), imdb_id
+        # Se il media è una serie, costruisci un ID univoco per l'episodio
+        if media.type == "show" and media.episodes():
+            episodes = media.episodes()
+            episode_tvdb_id = max(data.get('episodes', []), key=lambda ep: ep.get("tvdbId", 0)).get('tvdbId')
+            for target_episode in episodes:
+                if any(f"tvdb://{episode_tvdb_id}" in g.id for g in target_episode.guids):
+                    logger.info("✅ Episodio trovato con episode_tvdb_id ID %s", episode_tvdb_id)
+                    # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
+                    target_episode.refresh()
+                    target_episode.reload()
+                    languages = [track.language for track in target_episode.media[0].parts[0].streams if
+                                 track.streamType == 2]
+        elif media.type in ("movie", "show"):
+            media.reload()
+            languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
+
+        languages = list(dict.fromkeys(languages))
+        return media, languages, id
 
     def process_webhook_data(self, data):
         """Riceve i dati da Sonarr/Radarr al momento del download"""
-        media, languages, imdb_id = self.get_languages(data)
+        media, languages, id = self.get_languages(data)
+        if not media:
+            return
 
-        media_info = {
-            "title": media.title,
-            "languages": languages,
-            "cover": media.thumbUrl
-        }
+        audio_db = _load_audio_db()
+        audio_db[id] = languages
+        _save_audio_db(audio_db)
 
-        audio_db = self._load_audio_db()
-        audio_db[imdb_id] = media_info["languages"]
-        self._save_audio_db(audio_db)
+        logger.info("🎧 Tracce audio salvate per %s: %s", media.title, languages)
+        return languages
 
-        logger.info("🎧 Tracce audio salvate per %s: %s", media_info["title"], media_info["languages"])
-        return media_info["languages"]
-
-    async def check_language_update(self, data, added=False):
+    async def check_language_update(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
-        media, current_languages, imdb_id = self.get_languages(data)
+        time.sleep(10)
+        media, current_languages, id = self.get_languages(data)
+        if not media:
+            logger.warning("⚠️ Media non trovato dopo import")
+            return
 
-        audio_db = self._load_audio_db()
-        previous_languages = audio_db.get(imdb_id, [])
+        audio_db = _load_audio_db()
+        previous_languages = audio_db.get(id, [])
 
-        if added:
+        if media and not data.get('isUpgrade'):
             await self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:

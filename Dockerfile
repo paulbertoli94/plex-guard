@@ -8,6 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 COPY plexguard/ ./plexguard/
 COPY plexguard/Controller.py ./plexguard.py
+RUN echo '{}' > audio_tracks.json
 
 # Installa le dipendenze
 RUN pip install --no-cache-dir -r requirements.txt

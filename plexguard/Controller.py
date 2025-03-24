@@ -11,34 +11,24 @@ from plexguard.TorrentCleanerService import TorrentCleanerService
 torrent_cleaner = TorrentCleanerService()
 telegram_notifier = TelegramNotificationService()
 
+
 async def downloading(request: Request):
     """Webhook di Sonarr: Notifica il download in corso."""
     data = await request.json()
     torrent_cleaner.clean_torrents()
-    # Supponendo che process_webhook_data sia sincrono:
     result = telegram_notifier.process_webhook_data(data)
     return JSONResponse({"status": "OK", "result": result})
 
-async def upgraded(request: Request):
+async def imported(request: Request):
     """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua."""
     data = await request.json()
     torrent_cleaner.clean_torrents()
-    # Supponendo che check_language_update sia sincrono o una coroutine non da awaitare qui:
     result = await telegram_notifier.check_language_update(data)
-    return JSONResponse({"status": "OK", "result": result})
-
-async def added(request: Request):
-    """Webhook di Sonarr: Evento 'added' per segnalare nuovi media."""
-    data = await request.json()
-    torrent_cleaner.clean_torrents()
-    # Se check_language_update è una coroutine, la aspettiamo
-    result = await telegram_notifier.check_language_update(data, True)
     return JSONResponse({"status": "OK", "result": result})
 
 routes = [
     Route("/downloading", endpoint=downloading, methods=["POST"]),
-    Route("/upgraded", endpoint=upgraded, methods=["POST"]),
-    Route("/added", endpoint=added, methods=["POST"]),
+    Route("/imported", endpoint=imported, methods=["POST"]),
 ]
 
 app = Starlette(debug=False, routes=routes)
