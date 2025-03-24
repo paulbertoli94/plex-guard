@@ -181,7 +181,7 @@ class TelegramNotificationService:
 
             message = (
                 f"<b>{title}</b>\n"
-                f"<b>Tracce audio: {', '.join(flags)}</b>\n"
+                f"<b>Tracce audio: {' '.join(flags)}</b>\n"
                 f"{summary}\n\n"
                 f'<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
             )
