@@ -121,7 +121,7 @@ class TelegramNotificationService:
 
     def _find_media_by_id(self, data):
         if not self.plex:
-            return None
+            return None, None, None
 
         if data.get('movie'):
             imdb_id = data.get('movie').get('imdbId')
@@ -130,12 +130,12 @@ class TelegramNotificationService:
                 if section.type == 'movie':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"imdb://{imdb_id}" in g.id for g in item.guids):
+                        if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
                             logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
                                         item.title, imdb_id, section.title)
                             item.refresh()
                             item.reload()
-                            return item, imdb_id
+                            return item.title, item, imdb_id
 
         if data.get('series'):
             tvdb_id = data.get('series').get('tvdbId')
@@ -144,14 +144,24 @@ class TelegramNotificationService:
                 if section.type == 'show':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"tvdb://{tvdb_id}" in g.id for g in item.guids):
+                        if any(f"tvdb://{tvdb_id}" == g.id for g in item.guids):
                             logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
                                         item.title, tvdb_id, section.title)
                             item.refresh()
                             item.reload()
-                            return item, tvdb_id
+                            if item.episodes() and data.get('episodes'):
+                                episodes = item.episodes()
+                                episode_tvdb_id = max(data.get('episodes', []), key=lambda ep: ep.get("tvdbId", 0)).get(
+                                    'tvdbId')
+                                for target_episode in episodes:
+                                    if any(f"tvdb://{episode_tvdb_id}" == g.id for g in target_episode.guids):
+                                        logger.info("✅ Episodio trovato con episode_tvdb_id ID %s", episode_tvdb_id)
+                                        # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
+                                        target_episode.refresh()
+                                        target_episode.reload()
+                                        return item.title + ' - ' + target_episode.title, target_episode, episode_tvdb_id
 
-        return None, None
+        return None, None, None
 
     async def send_telegram_notification(self, title, current_languages, summary, image_url):
         """Invia una notifica su Telegram con messaggio e immagine.
@@ -206,57 +216,45 @@ class TelegramNotificationService:
           - id: identificatore univoco per l'elemento
         """
         logger.info("DATA: %s", data)
-        media, id = self._find_media_by_id(data)
+        title, media, id = self._find_media_by_id(data)
         if not media:
-            return None, None, None
+            return None, None, None, None
 
-        # Se il media è una serie, costruisci un ID univoco per l'episodio
-        if media.type == "show" and media.episodes():
-            episodes = media.episodes()
-            episode_tvdb_id = max(data.get('episodes', []), key=lambda ep: ep.get("tvdbId", 0)).get('tvdbId')
-            for target_episode in episodes:
-                if any(f"tvdb://{episode_tvdb_id}" in g.id for g in target_episode.guids):
-                    logger.info("✅ Episodio trovato con episode_tvdb_id ID %s", episode_tvdb_id)
-                    # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
-                    target_episode.refresh()
-                    target_episode.reload()
-                    languages = [track.language for track in target_episode.media[0].parts[0].streams if
-                                 track.streamType == 2]
-        elif media.type in ("movie", "show"):
-            media.reload()
-            languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
-
+        languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
         languages = list(dict.fromkeys(languages))
-        return media, languages, id
+        return title, media, languages, str(id)
 
-    def process_webhook_data(self, data):
+    def process_downloading(self, data):
         """Riceve i dati da Sonarr/Radarr al momento del download"""
-        media, languages, id = self.get_languages(data)
-        if not media:
+        title, media, languages, id = self.get_languages(data)
+        if not media or not languages:
             return
 
         audio_db = _load_audio_db()
         audio_db[id] = languages
         _save_audio_db(audio_db)
 
-        logger.info("🎧 Tracce audio salvate per %s: %s", media.title, languages)
+        logger.info("🎧 Tracce audio salvate per %s: %s", title, languages)
         return languages
 
-    async def check_language_update(self, data):
+    async def process_imported(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
-        media, current_languages, id = self.get_languages(data)
+        title, media, current_languages, id = self.get_languages(data)
         if not media:
             logger.warning("⚠️ Media non trovato dopo import")
+            return
+        if not current_languages:
+            logger.warning("⚠️ Current Languages non trovato dopo import")
             return
 
         audio_db = _load_audio_db()
         previous_languages = audio_db.get(id, [])
 
         if media and not data.get('isUpgrade'):
-            await self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
+            await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
-            await self.send_telegram_notification(media.title, current_languages, media.summary, media.thumbUrl)
+            await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
             return "Notifica italiano inviata"
         else:
             return "Nessun cambiamento rilevante"

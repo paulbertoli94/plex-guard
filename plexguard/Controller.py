@@ -18,7 +18,7 @@ async def downloading(request: Request):
     """Webhook di Sonarr: Notifica il download in corso."""
     data = await request.json()
     torrent_cleaner.clean_torrents()
-    result = telegram_notifier.process_webhook_data(data)
+    result = telegram_notifier.process_downloading(data)
     return JSONResponse({"status": "OK", "result": result})
 
 
@@ -27,7 +27,7 @@ async def imported(request: Request):
     data = await request.json()
     time.sleep(10)
     torrent_cleaner.clean_torrents()
-    result = await telegram_notifier.check_language_update(data)
+    result = await telegram_notifier.process_imported(data)
     return JSONResponse({"status": "OK", "result": result})
 
 
