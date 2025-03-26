@@ -23,8 +23,22 @@ class TorrentCleanerService:
         else:
             self.login()
 
+    def is_session_active(self):
+        """Verifica se la sessione è ancora attiva effettuando una richiesta di test."""
+        if not self.session:
+            return False
+        try:
+            # Facciamo una richiesta semplice per controllare la validità della sessione
+            response = self.session.get(f"{self.qbittorrent_url}/api/v2/app/version", timeout=5)
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+
     def login(self):
         """ Effettua il login a qBittorrent e memorizza la sessione """
+        if self.is_session_active():
+            return True
+
         self.session = requests.Session()
         login_data = {"username": self.username, "password": self.password}
 
@@ -43,9 +57,8 @@ class TorrentCleanerService:
 
     def delete_torrent(self, torrent_hash, delete_files=True):
         """ Elimina un torrent per hash """
-        if not self.session:
-            logger.warning("⚠️ Nessuna sessione attiva, impossibile eliminare il torrent %s", torrent_hash)
-            return False
+        if not self.login():
+            return
 
         try:
             response = self.session.post(
@@ -64,40 +77,35 @@ class TorrentCleanerService:
 
     def clean_torrents(self):
         """ Controlla i torrent e applica le regole di eliminazione """
-        if not self.session:
-            logger.error("Impossibile connettersi a qBittorrent")
+        if not self.login():
             return
 
-        try:
-            response = self.session.get(f"{self.qbittorrent_url}/api/v2/torrents/info")
-            if response.status_code != 200:
-                logger.error("Errore nel recupero dei torrent")
-                return
+        response = self.session.get(f"{self.qbittorrent_url}/api/v2/torrents/info")
+        if response.status_code != 200:
+            logger.error("Errore nel recupero dei torrent")
+            return
 
-            torrents = response.json()
-            deleted_count = 0
-            now = datetime.datetime.now()
+        torrents = response.json()
+        deleted_count = 0
+        now = datetime.datetime.now()
 
-            for torrent in torrents:
-                torrent_hash = torrent["hash"]
-                added_on = datetime.datetime.fromtimestamp(torrent["added_on"])
-                days_old = (now - added_on).days
-                comment = torrent.get("comment", "").strip()
+        for torrent in torrents:
+            torrent_hash = torrent["hash"]
+            added_on = datetime.datetime.fromtimestamp(torrent["added_on"])
+            days_old = (now - added_on).days
+            comment = torrent.get("comment", "").strip()
 
-                # Controlla se il torrent è completo
-                if torrent["progress"] < 1.0:
-                    continue
+            # Controlla se il torrent è completo
+            if torrent["progress"] < 1.0:
+                continue
 
-                # Criterio di eliminazione: Senza commento o troppo vecchio
-                if not comment or comment == "dynamic metainfo from client":
-                    logger.info(f"🚮 Eliminando torrent senza commento: {torrent['name']}")
-                    if self.delete_torrent(torrent_hash):
-                        deleted_count += 1
-                elif days_old > self.days_old:
-                    logger.info(
-                        f"📅 Eliminando torrent '{torrent['name']}' con commento (aggiunto {days_old} giorni fa)")
-                    if self.delete_torrent(torrent_hash):
-                        deleted_count += 1
-
-        except requests.RequestException as e:
-            logger.error("❌ Errore nel recupero dei torrent: %s", e)
+            # Criterio di eliminazione: Senza commento o troppo vecchio
+            if not comment or comment == "dynamic metainfo from client":
+                logger.info(f"🚮 Eliminando torrent senza commento: {torrent['name']}")
+                if self.delete_torrent(torrent_hash):
+                    deleted_count += 1
+            elif days_old > self.days_old:
+                logger.info(
+                    f"📅 Eliminando torrent '{torrent['name']}' con commento (aggiunto {days_old} giorni fa)")
+                if self.delete_torrent(torrent_hash):
+                    deleted_count += 1
