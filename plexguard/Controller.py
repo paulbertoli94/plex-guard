@@ -19,8 +19,8 @@ telegram_notifier = TelegramNotificationService()
 
 async def downloading(request: Request):
     """Webhook di Sonarr: Notifica il download in corso."""
-    body = await request.body()
-    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
+#    body = await request.body()
+#    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
 
     data = await request.json()
     torrent_cleaner.clean_torrents()
@@ -30,10 +30,8 @@ async def downloading(request: Request):
 
 async def imported(request: Request):
     """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua."""
-    body = await request.body()
-    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
-
-    #time.sleep(10)
+#    body = await request.body()
+#    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
 
     data = await request.json()
     torrent_cleaner.clean_torrents()
