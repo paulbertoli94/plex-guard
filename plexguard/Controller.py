@@ -1,3 +1,4 @@
+import logging
 import time
 
 import uvicorn
@@ -9,6 +10,8 @@ from starlette.routing import Route
 from plexguard.TelegramNotificationService import TelegramNotificationService
 from plexguard.TorrentCleanerService import TorrentCleanerService
 
+logger = logging.getLogger(__name__)
+
 # Inizializza i servizi
 torrent_cleaner = TorrentCleanerService()
 telegram_notifier = TelegramNotificationService()
@@ -16,6 +19,9 @@ telegram_notifier = TelegramNotificationService()
 
 async def downloading(request: Request):
     """Webhook di Sonarr: Notifica il download in corso."""
+    body = await request.body()
+    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
+
     data = await request.json()
     torrent_cleaner.clean_torrents()
     result = telegram_notifier.process_downloading(data)
@@ -24,8 +30,12 @@ async def downloading(request: Request):
 
 async def imported(request: Request):
     """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua."""
+    body = await request.body()
+    logger.info("REQUEST BODY (raw): %s", body.decode("utf-8"))
+
+    #time.sleep(10)
+
     data = await request.json()
-    time.sleep(10)
     torrent_cleaner.clean_torrents()
     result = await telegram_notifier.process_imported(data)
     return JSONResponse({"status": "OK", "result": result})

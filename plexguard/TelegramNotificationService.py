@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from plexapi.server import PlexServer
 from telegram import Bot
+from unicodedata import normalize
 
 # Configura il logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -79,6 +80,18 @@ def _save_audio_db(data):
         json.dump(data, f, indent=2)
 
 
+def normalize_data(data):
+    if data.get('type') and (data.get('type') == 'season' or data.get('type') == 'episode'):
+        data['episodes'] = []
+        episode_numbers = [int(x) for x in data.get('series').get('episodeNumber').split("-") if x]
+        for episodeNumber in episode_numbers:
+            episode_info = {
+                "episodeNumber": episodeNumber,
+                "seasonNumber": data.get('series', {}).get('seasonNumber')
+            }
+            data['episodes'].append(episode_info)
+
+
 class TelegramNotificationService:
     def __init__(self):
         """ Inizializza il servizio di notifica con connessione a Plex e Telegram """
@@ -131,35 +144,35 @@ class TelegramNotificationService:
                     results = section.search(title="")
                     for item in results:
                         if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
+                            logger.info("✅ Trovato '%s' con imdb_id ID %s nella sezione '%s'",
                                         item.title, imdb_id, section.title)
                             item.refresh()
                             item.reload()
                             return item.title, item, imdb_id
 
         if data.get('series'):
-            tvdb_id = data.get('series').get('tvdbId')
-            logger.info("🔍 Ricerca Plex per tvdbId: %s", tvdb_id)
+            imdb_id = data.get('series').get('imdbId')
+            logger.info("🔍 Ricerca Plex per imdb_id: %s", imdb_id)
             for section in self.plex.library.sections():
                 if section.type == 'show':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"tvdb://{tvdb_id}" == g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con tvdb ID %s nella sezione '%s'",
-                                        item.title, tvdb_id, section.title)
+                        if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
+                            logger.info("✅ Trovato '%s' con imdb_id %s nella sezione '%s'",
+                                        item.title, imdb_id, section.title)
                             item.refresh()
                             item.reload()
-                            if item.episodes() and data.get('episodes'):
+                            if item.episodes():
+                                payload_episode_id = f"{imdb_id}-s{int(data.get('seasonNumber')):02d}e{int(data.get('episodeNumber')):02d}"
                                 episodes = item.episodes()
-                                episode_tvdb_id = max(data.get('episodes', []), key=lambda ep: ep.get("tvdbId", 0)).get(
-                                    'tvdbId')
                                 for target_episode in episodes:
-                                    if any(f"tvdb://{episode_tvdb_id}" == g.id for g in target_episode.guids):
-                                        logger.info("✅ Episodio trovato con episode_tvdb_id ID %s", episode_tvdb_id)
+                                    target_id = f"{imdb_id}-{target_episode.seasonEpisode}"
+                                    if target_id == payload_episode_id:
+                                        logger.info("✅ Episodio trovato con episode_imdb_id ID %s", target_id)
                                         # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
                                         target_episode.refresh()
                                         target_episode.reload()
-                                        return item.title + ' - ' + target_episode.title, target_episode, episode_tvdb_id
+                                        return f"{item.title} - {target_episode.title} - {str.upper(target_episode.seasonEpisode)}" , target_episode, target_id
 
         return None, None, None
 
@@ -215,7 +228,6 @@ class TelegramNotificationService:
           - languages: lista deduplicata delle lingue audio
           - id: identificatore univoco per l'elemento
         """
-        logger.info("DATA: %s", data)
         title, media, id = self._find_media_by_id(data)
         if not media:
             return None, None, None, None
@@ -224,8 +236,7 @@ class TelegramNotificationService:
         languages = list(dict.fromkeys(languages))
         return title, media, languages, str(id)
 
-    def process_downloading(self, data):
-        """Riceve i dati da Sonarr/Radarr al momento del download"""
+    def save_languages(self, data):
         title, media, languages, id = self.get_languages(data)
         if not media or not languages:
             return
@@ -235,22 +246,55 @@ class TelegramNotificationService:
         _save_audio_db(audio_db)
 
         logger.info("🎧 Tracce audio salvate per %s: %s", title, languages)
-        return languages
+        return title, languages
+
+    def process_downloading(self, data):
+        """Riceve i dati da Sonarr/Radarr al momento del download"""
+        normalize_data(data)
+        save_languages_result = []
+
+        if data.get('episodes'):
+            episodes = data['episodes']
+            for episode in episodes:
+                data['episodeNumber'] = episode.get('episodeNumber')
+                data['seasonNumber'] = episode.get('seasonNumber')
+
+                save_languages_result.append(self.save_languages(data))
+        else:
+            save_languages_result.append(self.save_languages(data))
+
+        return save_languages_result
 
     async def process_imported(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
+        normalize_data(data)
+        send_telegram_result = []
+
+        if data.get('episodes'):
+            episodes = data['episodes']
+            for episode in episodes:
+                data['episodeNumber'] = episode.get('episodeNumber')
+                data['seasonNumber'] = episode.get('seasonNumber')
+
+                send_telegram_result.append(await self.send_telegram(data))
+        else:
+            send_telegram_result.append(await self.send_telegram(data))
+
+        return send_telegram_result
+
+    async def send_telegram(self, data):
         title, media, current_languages, id = self.get_languages(data)
         if not media:
-            logger.warning("⚠️ Media non trovato dopo import")
+            logger.warning("⚠️ Media non trovato dopo import con id: %s", id)
             return
         if not current_languages:
-            logger.warning("⚠️ Current Languages non trovato dopo import")
+            logger.warning("⚠️ Current Languages non trovato dopo import con id: %s", id)
             return
 
         audio_db = _load_audio_db()
         previous_languages = audio_db.get(id, [])
 
-        if media and not data.get('isUpgrade'):
+        if not previous_languages :
             await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
