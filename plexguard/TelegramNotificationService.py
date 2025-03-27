@@ -79,19 +79,6 @@ def _save_audio_db(data):
     with open(AUDIO_TRACKS_DB, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-
-def normalize_data(data):
-    if data.get('type') and (data.get('type') == 'season' or data.get('type') == 'episode'):
-        data['episodes'] = []
-        episode_numbers = [int(x) for x in data.get('series').get('episodeNumber').split("-") if x]
-        for episodeNumber in episode_numbers:
-            episode_info = {
-                "episodeNumber": episodeNumber,
-                "seasonNumber": data.get('series', {}).get('seasonNumber')
-            }
-            data['episodes'].append(episode_info)
-
-
 class TelegramNotificationService:
     def __init__(self):
         """ Inizializza il servizio di notifica con connessione a Plex e Telegram """
@@ -108,6 +95,8 @@ class TelegramNotificationService:
 
     def _initialize_plex(self):
         """ Inizializza la connessione a Plex, se possibile """
+        if self.plex:
+            return
         if not self.plex_url or not self.plex_token:
             logger.warning("⚠️ Parametri Plex mancanti: il servizio Plex non sarà attivo.")
             return
@@ -132,10 +121,19 @@ class TelegramNotificationService:
             logger.error("❌ Errore nell'inizializzazione del bot Telegram: %s", e)
             self.bot = None
 
-    def _find_media_by_id(self, data):
-        if not self.plex:
-            return None, None, None
+    def normalize_data(self, data):
+        if data.get('type') and (data.get('type') == 'season' or data.get('type') == 'episode'):
+            data['episodes'] = []
+            episode_numbers = [int(x) for x in data.get('series').get('episodeNumber').split("-") if x]
+            for episodeNumber in episode_numbers:
+                episode_info = {
+                    "episodeNumber": episodeNumber,
+                    "seasonNumber": data.get('series', {}).get('seasonNumber')
+                }
+                data['episodes'].append(episode_info)
+        self._initialize_plex()
 
+    def _find_media_by_id(self, data):
         if data.get('movie'):
             imdb_id = data.get('movie').get('imdbId')
             logger.info("🔍 Ricerca Plex per imdb_id: %s", imdb_id)
@@ -144,7 +142,7 @@ class TelegramNotificationService:
                     results = section.search(title="")
                     for item in results:
                         if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con imdb_id ID %s nella sezione '%s'",
+                            logger.info("✅ Trovato '%s' con imdb_id %s nella sezione '%s'",
                                         item.title, imdb_id, section.title)
                             item.refresh()
                             item.reload()
@@ -158,7 +156,7 @@ class TelegramNotificationService:
                     results = section.search(title="")
                     for item in results:
                         if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con imdb_id %s nella sezione '%s'",
+                            logger.info("🔍 Ricerca episodio '%s' con imdb_id %s nella sezione '%s'",
                                         item.title, imdb_id, section.title)
                             item.refresh()
                             item.reload()
@@ -250,7 +248,7 @@ class TelegramNotificationService:
 
     def process_downloading(self, data):
         """Riceve i dati da Sonarr/Radarr al momento del download"""
-        normalize_data(data)
+        self.normalize_data(data)
         save_languages_result = []
 
         if data.get('episodes'):
@@ -267,7 +265,7 @@ class TelegramNotificationService:
 
     async def process_imported(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
-        normalize_data(data)
+        self.normalize_data(data)
         send_telegram_result = []
 
         if data.get('episodes'):
