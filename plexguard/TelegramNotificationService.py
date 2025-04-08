@@ -93,7 +93,7 @@ def save_languages_on_db(title, media, languages, id):
 
 def start_kometa(libraries):
     # Define the URL of the endpoint
-    url = "http://192.168.1.10:5009/trigger"
+    url = "http://192.168.1.10:5009/kometa"
 
     # Define the payload with the "libraries" parameter
     payload = {
@@ -105,11 +105,10 @@ def start_kometa(libraries):
 
     # Check the status code and print the result
     if response.status_code == 200:
-        print("Request successful!")
-        print("Response:", response.json())
+        print("Response kometa:", response.json())
     else:
-        print("Request failed with status code:", response.status_code)
-        print("Error response:", response.json())
+        print("Request kometa failed with status code:", response.status_code)
+        print("Error kometa response:", response)
 
 
 class TelegramNotificationService:
