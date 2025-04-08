@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import logging
@@ -7,7 +8,6 @@ from pathlib import Path
 import requests
 from plexapi.server import PlexServer
 from telegram import Bot
-from unicodedata import normalize
 
 # Configura il logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -53,7 +53,7 @@ def get_episode_unique_imdb_id(data):
     Crea un identificatore univoco per un episodio combinando l'IMDb ID, il numero di stagione e di episodio.
     Se uno di questi campi manca, restituisce solo l'IMDb ID come fallback.
     """
-    imdb_id = data.get("series", {}).get("imdbId")
+    imdb_id = data.get("series", {}).get("tmdbId")
     season_number = data.get("episode", {}).get("seasonNumber")
     episode_number = data.get("episode", {}).get("episodeNumber")
 
@@ -79,6 +79,39 @@ def _save_audio_db(data):
     with open(AUDIO_TRACKS_DB, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+
+def save_languages_on_db(title, media, languages, id):
+    if not media or not languages:
+        return
+
+    audio_db = _load_audio_db()
+    audio_db[id] = languages
+    _save_audio_db(audio_db)
+
+    logger.info("🎧 Tracce audio salvate per %s: %s", title, languages)
+    return title, languages
+
+def start_kometa(libraries):
+    # Define the URL of the endpoint
+    url = "http://192.168.1.10:5009/trigger"
+
+    # Define the payload with the "libraries" parameter
+    payload = {
+        "libraries": libraries
+    }
+
+    # Make a POST request to the endpoint with a JSON payload
+    response = requests.post(url, json=payload)
+
+    # Check the status code and print the result
+    if response.status_code == 200:
+        print("Request successful!")
+        print("Response:", response.json())
+    else:
+        print("Request failed with status code:", response.status_code)
+        print("Error response:", response.json())
+
+
 class TelegramNotificationService:
     def __init__(self):
         """ Inizializza il servizio di notifica con connessione a Plex e Telegram """
@@ -90,13 +123,10 @@ class TelegramNotificationService:
         self.bot = None
 
         # Verifica i parametri e inizializza i servizi
-        self._initialize_plex()
         self._initialize_telegram()
 
     def _initialize_plex(self):
         """ Inizializza la connessione a Plex, se possibile """
-        if self.plex:
-            return
         if not self.plex_url or not self.plex_token:
             logger.warning("⚠️ Parametri Plex mancanti: il servizio Plex non sarà attivo.")
             return
@@ -104,6 +134,7 @@ class TelegramNotificationService:
         try:
             self.plex = PlexServer(self.plex_url, self.plex_token)
             logger.info("✅ Connessione a Plex avvenuta con successo!")
+            self.plex.library.update()
         except Exception as e:
             logger.error("❌ Errore nella connessione a Plex: %s", e)
             self.plex = None
@@ -135,42 +166,42 @@ class TelegramNotificationService:
 
     def _find_media_by_id(self, data):
         if data.get('movie'):
-            imdb_id = data.get('movie').get('imdbId')
-            logger.info("🔍 Ricerca Plex per imdb_id: %s", imdb_id)
+            tmdbId = data.get('movie').get('tmdbId')
+            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdbId)
             for section in self.plex.library.sections():
                 if section.type == 'movie':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
-                            logger.info("✅ Trovato '%s' con imdb_id %s nella sezione '%s'",
-                                        item.title, imdb_id, section.title)
+                        if any(f"tmdb://{tmdbId}" == g.id for g in item.guids):
+                            logger.info("✅ Trovato '%s' con tmdbId %s nella sezione '%s'",
+                                        item.title, tmdbId, section.title)
                             item.refresh()
                             item.reload()
-                            return item.title, item, imdb_id
+                            return item.title, item, tmdbId
 
         if data.get('series'):
-            imdb_id = data.get('series').get('imdbId')
-            logger.info("🔍 Ricerca Plex per imdb_id: %s", imdb_id)
+            tmdbId = data.get('series').get('tmdbId')
+            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdbId)
             for section in self.plex.library.sections():
                 if section.type == 'show':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"imdb://{imdb_id}" == g.id for g in item.guids):
-                            logger.info("🔍 Ricerca episodio '%s' con imdb_id %s nella sezione '%s'",
-                                        item.title, imdb_id, section.title)
+                        if any(f"tmdb://{tmdbId}" == g.id for g in item.guids):
+                            logger.info("🔍 Ricerca episodio '%s' con tmdbId %s nella sezione '%s'",
+                                        item.title, tmdbId, section.title)
                             item.refresh()
                             item.reload()
                             if item.episodes():
-                                payload_episode_id = f"{imdb_id}-s{int(data.get('seasonNumber')):02d}e{int(data.get('episodeNumber')):02d}"
+                                payload_episode_id = f"{tmdbId}-s{int(data.get('seasonNumber')):02d}e{int(data.get('episodeNumber')):02d}"
                                 episodes = item.episodes()
                                 for target_episode in episodes:
-                                    target_id = f"{imdb_id}-{target_episode.seasonEpisode}"
+                                    target_id = f"{tmdbId}-{target_episode.seasonEpisode}"
                                     if target_id == payload_episode_id:
-                                        logger.info("✅ Episodio trovato con episode_imdb_id ID %s", target_id)
+                                        logger.info("✅ Episodio trovato con episode_tmdbId ID %s", target_id)
                                         # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
                                         target_episode.refresh()
                                         target_episode.reload()
-                                        return f"{item.title} - {target_episode.title} - {str.upper(target_episode.seasonEpisode)}" , target_episode, target_id
+                                        return f"{item.title} - {target_episode.title} - {str.upper(target_episode.seasonEpisode)}", target_episode, target_id
 
         return None, None, None
 
@@ -236,15 +267,7 @@ class TelegramNotificationService:
 
     def save_languages(self, data):
         title, media, languages, id = self.get_languages(data)
-        if not media or not languages:
-            return
-
-        audio_db = _load_audio_db()
-        audio_db[id] = languages
-        _save_audio_db(audio_db)
-
-        logger.info("🎧 Tracce audio salvate per %s: %s", title, languages)
-        return title, languages
+        return save_languages_on_db(title, media, languages, id)
 
     def process_downloading(self, data):
         """Riceve i dati da Sonarr/Radarr al momento del download"""
@@ -266,8 +289,16 @@ class TelegramNotificationService:
     async def process_imported(self, data):
         """Controlla se è stata aggiunta la lingua italiana"""
         self.normalize_data(data)
-        send_telegram_result = []
+        if not data.get("type"):
+            logger.info("Sleep 60s")
+            await asyncio.sleep(0)
 
+        #call kometa
+        libraries = 'Serie Tv' if data.get('series') else ('Film' if data.get('movie') else None)
+        if libraries:
+            start_kometa(libraries)
+
+        send_telegram_result = []
         if data.get('episodes'):
             episodes = data['episodes']
             for episode in episodes:
@@ -292,11 +323,13 @@ class TelegramNotificationService:
         audio_db = _load_audio_db()
         previous_languages = audio_db.get(id, [])
 
-        if not previous_languages :
+        if not previous_languages:
             await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
+            save_languages_on_db(title, media, current_languages, id)
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
             await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
+            save_languages_on_db(title, media, current_languages, id)
             return "Notifica italiano inviata"
         else:
             return "Nessun cambiamento rilevante"

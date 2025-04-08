@@ -1,5 +1,4 @@
 import logging
-import asyncio
 
 import uvicorn
 from starlette.applications import Starlette
@@ -30,9 +29,6 @@ async def imported(request: Request):
     """Webhook di Sonarr: Verifica se è stata aggiunta una nuova lingua."""
     data = await request.json()
     logger.info("DATA: %s", data)
-    if not data.get("type"):
-        logger.info("Sleep 60s")
-        await asyncio.sleep(60)
     torrent_cleaner.clean_torrents()
     result = await telegram_notifier.process_imported(data)
     return JSONResponse({"status": "OK", "result": result})
