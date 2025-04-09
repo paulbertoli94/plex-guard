@@ -290,7 +290,7 @@ class TelegramNotificationService:
         self.normalize_data(data)
         if not data.get("type"):
             logger.info("Sleep 60s")
-            await asyncio.sleep(0)
+            await asyncio.sleep(60)
 
         #call kometa
         libraries = 'Serie Tv' if data.get('series') else ('Film' if data.get('movie') else None)
@@ -325,10 +325,13 @@ class TelegramNotificationService:
         if not previous_languages:
             await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
             save_languages_on_db(title, media, current_languages, id)
+            logger.info("Notifica aggiunto inviata")
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
             await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
             save_languages_on_db(title, media, current_languages, id)
+            logger.info("Notifica italiano inviata")
             return "Notifica italiano inviata"
         else:
+            logger.info("Nessun cambiamento rilevante")
             return "Nessun cambiamento rilevante"
