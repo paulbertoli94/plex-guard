@@ -293,7 +293,7 @@ class TelegramNotificationService:
             await asyncio.sleep(60)
 
         #call kometa
-        libraries = 'Serie Tv' if data.get('series') else ('Film' if data.get('movie') else None)
+        libraries = 'Serie TV' if data.get('series') else ('Film' if data.get('movie') else None)
         if libraries:
             start_kometa(libraries)
 
