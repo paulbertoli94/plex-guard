@@ -305,6 +305,7 @@ class TelegramNotificationService:
                 data['seasonNumber'] = episode.get('seasonNumber')
 
                 send_telegram_result.append(await self.send_telegram(data))
+                await asyncio.sleep(1)
         else:
             send_telegram_result.append(await self.send_telegram(data))
 
