@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 import requests
@@ -91,6 +92,7 @@ def save_languages_on_db(title, media, languages, id):
     logger.info("🎧 Tracce audio salvate per %s: %s", title, languages)
     return title, languages
 
+
 def start_kometa(libraries):
     # Define the URL of the endpoint
     url = "http://192.168.1.10:5009/kometa"
@@ -118,6 +120,7 @@ class TelegramNotificationService:
         self.plex_token = os.getenv("PLEX_TOKEN")
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        self.tmdb_api_key = os.getenv("TMDB_API_KEY")
         self.plex = None
         self.bot = None
 
@@ -165,46 +168,46 @@ class TelegramNotificationService:
 
     def _find_media_by_id(self, data):
         if data.get('movie'):
-            tmdbId = data.get('movie').get('tmdbId')
-            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdbId)
+            tmdb_id = data.get('movie').get('tmdbId')
+            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdb_id)
             for section in self.plex.library.sections():
                 if section.type == 'movie':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"tmdb://{tmdbId}" == g.id for g in item.guids):
+                        if any(f"tmdb://{tmdb_id}" == g.id for g in item.guids):
                             logger.info("✅ Trovato '%s' con tmdbId %s nella sezione '%s'",
-                                        item.title, tmdbId, section.title)
+                                        item.title, tmdb_id, section.title)
                             item.refresh()
                             item.reload()
-                            return item.title, item, tmdbId
+                            return item.title, item, tmdb_id, 'movie'
 
         if data.get('series'):
-            tmdbId = data.get('series').get('tmdbId')
-            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdbId)
+            tmdb_id = data.get('series').get('tmdbId')
+            logger.info("🔍 Ricerca Plex per tmdbId: %s", tmdb_id)
             for section in self.plex.library.sections():
                 if section.type == 'show':
                     results = section.search(title="")
                     for item in results:
-                        if any(f"tmdb://{tmdbId}" == g.id for g in item.guids):
+                        if any(f"tmdb://{tmdb_id}" == g.id for g in item.guids):
                             logger.info("🔍 Ricerca episodio '%s' con tmdbId %s nella sezione '%s'",
-                                        item.title, tmdbId, section.title)
+                                        item.title, tmdb_id, section.title)
                             item.refresh()
                             item.reload()
                             if item.episodes():
-                                payload_episode_id = f"{tmdbId}-s{int(data.get('seasonNumber')):02d}e{int(data.get('episodeNumber')):02d}"
+                                payload_episode_id = f"{tmdb_id}-s{int(data.get('seasonNumber')):02d}e{int(data.get('episodeNumber')):02d}"
                                 episodes = item.episodes()
                                 for target_episode in episodes:
-                                    target_id = f"{tmdbId}-{target_episode.seasonEpisode}"
+                                    target_id = f"{tmdb_id}-{target_episode.seasonEpisode}"
                                     if target_id == payload_episode_id:
                                         logger.info("✅ Episodio trovato con episode_tmdbId ID %s", target_id)
                                         # Forza l'aggiornamento dei metadati per assicurarsi che siano completi
                                         target_episode.refresh()
                                         target_episode.reload()
-                                        return f"{item.title} - {target_episode.title} - {str.upper(target_episode.seasonEpisode)}", target_episode, target_id
+                                        return f"{item.title} - {target_episode.title} - {str.upper(target_episode.seasonEpisode)}", target_episode, target_id, 'series'
 
-        return None, None, None
+        return None, None, None, None
 
-    async def send_telegram_notification(self, title, current_languages, summary, image_url):
+    async def send_telegram_notification(self, title, current_languages, summary, media_id, media_type):
         """Invia una notifica su Telegram con messaggio e immagine.
 
         L'URL dell'immagine viene scaricato e inviato come file.
@@ -215,6 +218,11 @@ class TelegramNotificationService:
             return False
 
         try:
+            if media_type == "movie":
+                image_url = self.get_tmdb_italian_movie_poster(media_id)
+            else:
+                image_url = self.get_tmdb_episode_still(media_id)
+
             # Scarica l'immagine dall'URL in modo sincrono
             # (Se vuoi farlo asincrono puoi usare aiohttp, ma qui restiamo semplici)
             response = requests.get(image_url)
@@ -224,7 +232,6 @@ class TelegramNotificationService:
 
             # Converte il contenuto in un file-like object
             image_bytes = io.BytesIO(response.content)
-            image_bytes.name = "image.jpg"  # Nome del file (opzionale)
 
             # Sostituisci ogni lingua con la sua emoji (se disponibile)
             flags = [flag_mapping.get(lang, lang) for lang in current_languages]
@@ -232,9 +239,10 @@ class TelegramNotificationService:
             message = (
                 f"<b>{title}</b>\n"
                 f"<b>Tracce audio: {' '.join(flags)}</b>\n"
-                f"{summary}\n\n"
-                f'<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
+                f"{summary}"
             )
+            if media_type == 'movie':
+                message += f'\n\n<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
 
             # Invia la foto con la didascalia
             await self.bot.send_photo(
@@ -256,17 +264,17 @@ class TelegramNotificationService:
           - languages: lista deduplicata delle lingue audio
           - id: identificatore univoco per l'elemento
         """
-        title, media, id = self._find_media_by_id(data)
+        title, media, media_id, media_type = self._find_media_by_id(data)
         if not media:
-            return None, None, None, None
+            return None, None, None, None, None
 
         languages = [track.language for track in media.media[0].parts[0].streams if track.streamType == 2]
         languages = list(dict.fromkeys(languages))
-        return title, media, languages, str(id)
+        return title, media, languages, str(media_id), media_type
 
     def save_languages(self, data):
-        title, media, languages, id = self.get_languages(data)
-        return save_languages_on_db(title, media, languages, id)
+        title, media, languages, media_id, media_type = self.get_languages(data)
+        return save_languages_on_db(title, media, languages, media_id)
 
     def process_downloading(self, data):
         """Riceve i dati da Sonarr/Radarr al momento del download"""
@@ -289,50 +297,87 @@ class TelegramNotificationService:
         """Controlla se è stata aggiunta la lingua italiana"""
         self.normalize_data(data)
         if not data.get("type"):
-            logger.info("Sleep 60s")
-            await asyncio.sleep(60)
+            logger.info("Sleep 70s")
+            await asyncio.sleep(70)
 
-        #call kometa
-        libraries = 'Serie TV' if data.get('series') else ('Film' if data.get('movie') else None)
-        if libraries:
-            start_kometa(libraries)
-
-        send_telegram_result = []
+        send_telegram_result_list = []
         if data.get('episodes'):
             episodes = data['episodes']
             for episode in episodes:
                 data['episodeNumber'] = episode.get('episodeNumber')
                 data['seasonNumber'] = episode.get('seasonNumber')
 
-                send_telegram_result.append(await self.send_telegram(data))
+                send_telegram_result_list.append(await self.send_telegram(data))
                 await asyncio.sleep(1)
         else:
-            send_telegram_result.append(await self.send_telegram(data))
+            send_telegram_result_list.append(await self.send_telegram(data))
 
-        return send_telegram_result
+        for send_telegram_result in send_telegram_result_list:
+            if "Notifica" in send_telegram_result:
+                # call kometa
+                libraries = 'Serie TV' if data.get('series') else ('Film' if data.get('movie') else None)
+                if libraries:
+                    start_kometa(libraries)
+                break
+
+        return send_telegram_result_list
 
     async def send_telegram(self, data):
-        title, media, current_languages, id = self.get_languages(data)
+        title, media, current_languages, media_id, media_type = self.get_languages(data)
         if not media:
-            logger.warning("⚠️ Media non trovato dopo import con id: %s", id)
+            logger.warning("⚠️ Media non trovato dopo import con id: %s", media_id)
             return
         if not current_languages:
-            logger.warning("⚠️ Current Languages non trovato dopo import con id: %s", id)
+            logger.warning("⚠️ Current Languages non trovato dopo import con id: %s", media_id)
             return
 
         audio_db = _load_audio_db()
-        previous_languages = audio_db.get(id, [])
+        previous_languages = audio_db.get(media_id, [])
 
         if not previous_languages:
-            await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
-            save_languages_on_db(title, media, current_languages, id)
+            await self.send_telegram_notification(title, current_languages, media.summary, media_id, media_type)
+            save_languages_on_db(title, media, current_languages, media_id)
             logger.info("Notifica aggiunto inviata")
             return "Notifica aggiunto inviata"
         elif "Italian" in current_languages and "Italian" not in previous_languages:
-            await self.send_telegram_notification(title, current_languages, media.summary, media.thumbUrl)
-            save_languages_on_db(title, media, current_languages, id)
+            await self.send_telegram_notification(title, current_languages, media.summary, media_id, media_type)
+            save_languages_on_db(title, media, current_languages, media_id)
             logger.info("Notifica italiano inviata")
             return "Notifica italiano inviata"
         else:
             logger.info("Nessun cambiamento rilevante")
             return "Nessun cambiamento rilevante"
+
+    def get_tmdb_italian_movie_poster(self, tmdb_id):
+        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/images?api_key={self.tmdb_api_key}&include_image_language=it,null"
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        posters = r.json().get("posters", [])
+        best_image = max(posters, key=lambda s: s.get("width", 0) * s.get("height", 0))
+        if not posters:
+            return None
+        return f"https://image.tmdb.org/t/p/original{best_image['file_path']}"
+
+    def get_tmdb_episode_still(self, episode_str):
+        tv_id, season, episode = parse_episode_string(episode_str)
+        url = (
+            f"https://api.themoviedb.org/3/tv/{tv_id}/season/{season}/episode/{episode}/images"
+            f"?api_key={self.tmdb_api_key}&include_image_language=it,null"
+        )
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        stills = r.json().get("stills", [])
+        best_image = max(stills, key=lambda s: s.get("width", 0) * s.get("height", 0))
+        if not stills:
+            return None
+        return f"https://image.tmdb.org/t/p/original{best_image['file_path']}"
+
+
+def parse_episode_string(episode_str):
+    match = re.match(r"(\d+)-s(\d{2})e(\d{2})", episode_str, re.IGNORECASE)
+    if not match:
+        return None, None, None
+    tv_id, season, episode = match.groups()
+    return tv_id, int(season), int(episode)
