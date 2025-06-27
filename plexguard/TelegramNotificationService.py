@@ -354,9 +354,9 @@ class TelegramNotificationService:
         if r.status_code != 200:
             return None
         posters = r.json().get("posters", [])
-        best_image = max(posters, key=lambda s: s.get("width", 0) * s.get("height", 0))
         if not posters:
             return None
+        best_image = max(posters, key=lambda s: s.get("width", 0) * s.get("height", 0))
         return f"https://image.tmdb.org/t/p/original{best_image['file_path']}"
 
     def get_tmdb_episode_still(self, episode_str):
@@ -369,9 +369,9 @@ class TelegramNotificationService:
         if r.status_code != 200:
             return None
         stills = r.json().get("stills", [])
-        best_image = max(stills, key=lambda s: s.get("width", 0) * s.get("height", 0))
         if not stills:
             return None
+        best_image = max(stills, key=lambda s: s.get("width", 0) * s.get("height", 0))
         return f"https://image.tmdb.org/t/p/original{best_image['file_path']}"
 
 
