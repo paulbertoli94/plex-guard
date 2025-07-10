@@ -83,7 +83,7 @@ def _save_audio_db(data):
 
 def save_languages_on_db(title, media, languages, id):
     if not media or not languages:
-        return
+        return None
 
     audio_db = _load_audio_db()
     audio_db[id] = languages
@@ -225,13 +225,13 @@ class TelegramNotificationService:
 
             # Scarica l'immagine dall'URL in modo sincrono
             # (Se vuoi farlo asincrono puoi usare aiohttp, ma qui restiamo semplici)
-            response = requests.get(image_url)
-            if response.status_code != 200:
-                logger.error("❌ Errore nel download dell'immagine: %s", response.status_code)
-                return False
-
-            # Converte il contenuto in un file-like object
-            image_bytes = io.BytesIO(response.content)
+            image_bytes = None
+            if image_url is None:
+                logger.error("❌ Errore nel download dell'immagine")
+            else:
+                # Converte il contenuto in un file-like object
+                response = requests.get(image_url)
+                image_bytes = io.BytesIO(response.content)
 
             # Sostituisci ogni lingua con la sua emoji (se disponibile)
             flags = [flag_mapping.get(lang, lang) for lang in current_languages]
@@ -244,13 +244,20 @@ class TelegramNotificationService:
             if media_type == 'movie':
                 message += f'\n\n<a href="https://www.youtube.com/results?search_query={title} trailer">Trailer</a>'
 
-            # Invia la foto con la didascalia
-            await self.bot.send_photo(
-                chat_id=self.telegram_chat_id,
-                photo=image_bytes,
-                caption=message,
-                parse_mode="HTML"
-            )
+            if image_bytes is None:
+                await self.bot.send_message(
+                    chat_id=self.telegram_chat_id,
+                    text=message,
+                    parse_mode="HTML"
+                )
+            else:
+                # Invia la foto con la didascalia
+                await self.bot.send_photo(
+                    chat_id=self.telegram_chat_id,
+                    photo=image_bytes,
+                    caption=message,
+                    parse_mode="HTML"
+                )
             logger.info("📨 Notifica inviata su Telegram con successo!")
             return True
         except Exception as e:
